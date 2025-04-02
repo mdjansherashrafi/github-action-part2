@@ -1,15 +1,16 @@
 name: Upload Large Files to S3
 
 on:
+  workflow_dispatch:
   push:
     branches:
-    - master
+      - master
     paths:
       - 'large-files/**'
 
 env:
-  AWS_REGION: eu-north-1
-  S3_BUCKET: githubaction-demo-1
+  AWS_REGION: 'eu-north-1'
+  S3_BUCKET: 'githubaction-demo-1'
   MULTIPART_THRESHOLD: '50MB'  # Switch to multipart above this size
   MULTIPART_CHUNKSIZE: '25MB'  # Size of each part
 
