@@ -1,0 +1,3 @@
+[submodule "github-action-part2"]
+	path = github-action-part2
+	url = https://github.com/mdjansherashrafi/github-action-part2.git
