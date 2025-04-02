@@ -2,8 +2,8 @@ name: Release Practice
 
 on:
   push:
-    tags:
-      - 'v*'  # Triggers on tags like v1.0.0
+    branches:
+    - master
 
 env:
   AWS_REGION: eu-north-1
