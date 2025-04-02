@@ -1,8 +1,4 @@
 
-env:
-  AWS_REGION: eu-north-1
-  S3_BUCKET: githubaction-demo-1
-
 name: Upload Large Files to S3
 
 on:
