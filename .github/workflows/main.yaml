@@ -3,7 +3,7 @@ name: Upload Large Files to S3
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [master]
 
 env:
   AWS_REGION: 'eu-north-1'
