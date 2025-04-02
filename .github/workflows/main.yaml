@@ -1,0 +1,59 @@
+name: Release Practice
+
+on:
+  push:
+    tags:
+      - 'v*'  # Triggers on tags like v1.0.0
+
+env:
+  AWS_REGION: eu-north-1
+  S3_BUCKET: githubaction-demo-1
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Create release directory
+        run: |
+          mkdir -p .release/{k8s,assets}
+          echo "This is a sample README" > .release/README.md
+          echo "Sample k8s manifest" > .release/k8s/deployment.yaml
+
+      - name: Package release
+        run: |
+          RELEASE_VERSION=$(find .release -type f -exec sha256sum {} \; | sort -k 2 | sha256sum | head -c 6)
+          RELEASE_NAME=${{ github.ref_name }}-${RELEASE_VERSION}
+          ARTIFACT_FILENAME=${RELEASE_NAME}.tar.gz
+          
+          tar -zcvf $ARTIFACT_FILENAME -C .release .
+          echo "ARTIFACT_FILENAME=$ARTIFACT_FILENAME" >> $GITHUB_ENV
+          echo "RELEASE_NAME=$RELEASE_NAME" >> $GITHUB_ENV
+
+      - name: Upload to S3
+        run: |
+          aws s3 cp ${{ env.ARTIFACT_FILENAME }} s3://${{ env.S3_BUCKET }}/
+          ARTIFACT_URL=$(aws s3 presign s3://${{ env.S3_BUCKET }}/${{ env.ARTIFACT_FILENAME }} --expires-in 604800)
+          echo "ARTIFACT_URL=$ARTIFACT_URL" >> $GITHUB_ENV
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: ${{ env.RELEASE_NAME }}
+          tag_name: ${{ github.ref_name }}
+          body: |
+            Practice release artifact
+            Download URL (valid 7 days): ${{ env.ARTIFACT_URL }}
+          files: |
+            ${{ env.ARTIFACT_FILENAME }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
