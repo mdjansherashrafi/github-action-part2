@@ -1,19 +1,29 @@
-name: Release Practice
-
-on:
-  push:
-    branches:
-    - master
 
 env:
   AWS_REGION: eu-north-1
   S3_BUCKET: githubaction-demo-1
 
+name: Upload Large Files to S3
+
+on:
+  push:
+    branches:
+    - master
+    paths:
+      - 'large-files/**'
+
+env:
+  AWS_REGION: eu-north-1
+  S3_BUCKET: githubaction-demo-1
+  MULTIPART_THRESHOLD: '50MB'  # Switch to multipart above this size
+  MULTIPART_CHUNKSIZE: '25MB'  # Size of each part
+
 jobs:
-  build-and-release:
+  upload:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Configure AWS Credentials
@@ -23,37 +33,44 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Create release directory
+      - name: Install AWS CLI with large file support
         run: |
-          mkdir -p .release/{k8s,assets}
-          echo "This is a sample README" > .release/README.md
-          echo "Sample k8s manifest" > .release/k8s/deployment.yaml
+          sudo apt-get update
+          sudo apt-get install -y awscli
+          aws --version
 
-      - name: Package release
+      - name: Upload files with proper content-length handling
         run: |
-          RELEASE_VERSION=$(find .release -type f -exec sha256sum {} \; | sort -k 2 | sha256sum | head -c 6)
-          RELEASE_NAME=${{ github.ref_name }}-${RELEASE_VERSION}
-          ARTIFACT_FILENAME=${RELEASE_NAME}.tar.gz
-          
-          tar -zcvf $ARTIFACT_FILENAME -C .release .
-          echo "ARTIFACT_FILENAME=$ARTIFACT_FILENAME" >> $GITHUB_ENV
-          echo "RELEASE_NAME=$RELEASE_NAME" >> $GITHUB_ENV
+          # Function to upload with proper headers
+          upload_file() {
+            local file_path=$1
+            local file_size=$(stat -c%s "$file_path")
+            local s3_path="s3://${{ env.S3_BUCKET }}/${file_path#large-files/}"
 
-      - name: Upload to S3
+            echo "Uploading $file_path (Size: $file_size bytes)"
+
+            if [ "$file_size" -gt 52428800 ]; then  # 50MB in bytes
+              echo "Using multipart upload for large file"
+              aws s3 cp "$file_path" "$s3_path" \
+                --content-length "$file_size" \
+                --expected-size "$file_size" \
+                --multipart-chunksize ${{ env.MULTIPART_CHUNKSIZE }} \
+                --metadata "UploadMethod=multipart"
+            else
+              echo "Using standard upload"
+              aws s3 cp "$file_path" "$s3_path" \
+                --content-length "$file_size" \
+                --metadata "UploadMethod=standard"
+            fi
+          }
+
+          # Find and upload all files
+          find large-files/ -type f | while read file; do
+            upload_file "$file" || exit 1
+          done
+
+      - name: Verify uploads
         run: |
-          aws s3 cp ${{ env.ARTIFACT_FILENAME }} s3://${{ env.S3_BUCKET }}/
-          ARTIFACT_URL=$(aws s3 presign s3://${{ env.S3_BUCKET }}/${{ env.ARTIFACT_FILENAME }} --expires-in 604800)
-          echo "ARTIFACT_URL=$ARTIFACT_URL" >> $GITHUB_ENV
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
-        with:
-          name: ${{ env.RELEASE_NAME }}
-          tag_name: ${{ github.ref_name }}
-          body: |
-            Practice release artifact
-            Download URL (valid 7 days): ${{ env.ARTIFACT_URL }}
-          files: |
-            ${{ env.ARTIFACT_FILENAME }}
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+          aws s3 ls --recursive s3://${{ env.S3_BUCKET }} \
+            --human-readable \
+            --summarize
