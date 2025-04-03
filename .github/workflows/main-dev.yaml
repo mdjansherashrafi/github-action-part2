@@ -1,0 +1,59 @@
+name: Upload Large Files to S3
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [dev]
+
+env:
+  AWS_REGION: 'eu-north-1'
+  S3_BUCKET: 'githubaction-demo-2'
+  MULTIPART_THRESHOLD: '52428800'  # 50MB in bytes
+  MULTIPART_CHUNKSIZE: '26214400'  # 25MB in bytes
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install AWS CLI v2
+        run: |
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip awscliv2.zip
+          sudo ./aws/install --update
+          aws --version
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload files
+        run: |
+          upload_file() {
+            local file_path=$1
+            local file_size=$(stat -c%s "$file_path")
+            local s3_path="s3://${{ env.S3_BUCKET }}/${file_path#large-files/}"
+
+            echo "Uploading $file_path (Size: $file_size bytes)"
+
+            if [ "$file_size" -gt ${{ env.MULTIPART_THRESHOLD }} ]; then
+              echo "Using multipart upload"
+              aws s3 cp "$file_path" "$s3_path" \
+                --expected-size "$file_size" \
+                --multipart-chunksize ${{ env.MULTIPART_CHUNKSIZE }} \
+                --no-progress
+            else
+              echo "Using standard upload"
+              aws s3 cp "$file_path" "$s3_path" \
+                --no-progress
+            fi
+          }
+
+          # Find and upload all files
+          find large-files/ -type f | while read -r file; do
+            upload_file "$file" || exit 1
+          done
